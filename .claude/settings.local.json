@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m uvicorn main:app --port 8000 --no-access-log)",
+      "Bash(curl -s http://localhost:8000/health)",
+      "Bash(curl -s http://localhost:8000/registry)",
+      "Bash(curl -s -X POST http://localhost:8000/flows -H 'Content-Type: application/json' -d @flow.json)",
+      "Bash(python -m json.tool)",
+      "Bash(curl -s -X POST http://localhost:8000/flows/flow123/execute)",
+      "Bash(curl -s -X POST http://localhost:8000/flows -H 'Content-Type: application/json' -d '{ *)",
+      "Bash(curl -s -X POST http://localhost:8000/flows/fail_flow/execute)"
+    ]
+  }
+}
