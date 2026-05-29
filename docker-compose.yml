@@ -21,6 +21,9 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://postgres:postgres@db:5432/flowmanager}
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+      LINKEDIN_EMAIL: ${LINKEDIN_EMAIL}
+      LINKEDIN_PASSWORD: ${LINKEDIN_PASSWORD}
+      LINKEDIN_CV_PATH: ${LINKEDIN_CV_PATH:-}
     depends_on:
       redis:
         condition: service_healthy
