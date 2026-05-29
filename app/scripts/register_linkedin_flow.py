@@ -17,18 +17,24 @@ FLOW = {
     ],
     "conditions": [
         {
+            "name": "after_search",
+            "description": "Proceed to filtering after successful job search",
             "source_task": "linkedin_search_jobs",
             "outcome": "success",
             "target_task_success": "linkedin_filter_jobs",
             "target_task_failure": "end",
         },
         {
+            "name": "after_filter",
+            "description": "Proceed to applying after successful filtering",
             "source_task": "linkedin_filter_jobs",
             "outcome": "success",
             "target_task_success": "linkedin_apply_jobs",
             "target_task_failure": "end",
         },
         {
+            "name": "after_apply",
+            "description": "Always track application results regardless of outcome",
             "source_task": "linkedin_apply_jobs",
             "outcome": "success",
             "target_task_success": "linkedin_track_applications",
@@ -39,7 +45,7 @@ FLOW = {
 
 
 def register():
-    payload = json.dumps(FLOW).encode()
+    payload = json.dumps({"flow": FLOW}).encode()
     req = urllib.request.Request(
         f"{API_BASE}/flows",
         data=payload,

@@ -33,11 +33,13 @@ def _login(page) -> None:
     password = os.environ["LINKEDIN_PASSWORD"]
 
     page.goto("https://www.linkedin.com/login", timeout=30000)
-    page.wait_for_selector("#username", timeout=15000)
-    page.fill("#username", email)
-    page.fill("#password", password)
+    page.wait_for_selector("input[type='email'], #username", timeout=15000)
+    email_sel = "input[type='email']" if page.query_selector("input[type='email']") else "#username"
+    pwd_sel = "input[type='password']" if page.query_selector("input[type='password']") else "#password"
+    page.fill(email_sel, email)
+    page.fill(pwd_sel, password)
     page.click('button[type="submit"]')
-    page.wait_for_url("**/feed/**", timeout=20000)
+    page.wait_for_url("**/feed/**", timeout=25000)
 
 
 def _scrape_job_cards(page, url: str) -> list[dict]:
@@ -101,6 +103,7 @@ def search_linkedin_jobs(context: dict) -> dict:
                     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
                 ),
                 viewport={"width": 1280, "height": 800},
+                ignore_https_errors=True,
             )
             page = ctx.new_page()
 
