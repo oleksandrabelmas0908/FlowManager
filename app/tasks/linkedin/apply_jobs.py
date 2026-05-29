@@ -5,25 +5,19 @@ import time
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeoutError
 
 from utils.celery_app import celery_app
+from .session import (
+    LinkedInChallenge,
+    is_challenge,
+    new_authenticated_context,
+    save_challenge_screenshot,
+    save_state,
+)
 
 _CV_PATH = os.getenv(
     "LINKEDIN_CV_PATH",
     "/root/.claude/uploads/17ea3812-999f-4df1-af67-65ae328c28e6/daf5ebe5-Oleksandr_Abelmas_be.pdf",
 )
 _PHONE = "+48791846412"
-
-
-def _login(page) -> None:
-    email = os.environ["LINKEDIN_EMAIL"]
-    password = os.environ["LINKEDIN_PASSWORD"]
-    page.goto("https://www.linkedin.com/login", timeout=30000)
-    page.wait_for_selector("input[type='email'], #username", timeout=15000)
-    email_sel = "input[type='email']" if page.query_selector("input[type='email']") else "#username"
-    pwd_sel = "input[type='password']" if page.query_selector("input[type='password']") else "#password"
-    page.fill(email_sel, email)
-    page.fill(pwd_sel, password)
-    page.click('button[type="submit"]')
-    page.wait_for_url("**/feed/**", timeout=25000)
 
 
 def _fill_phone_if_needed(page) -> None:
@@ -161,16 +155,34 @@ def apply_linkedin_jobs(context: dict) -> dict:
                 headless=True,
                 args=["--no-sandbox", "--disable-dev-shm-usage"],
             )
-            ctx = browser.new_context(
-                user_agent=(
-                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-                ),
-                viewport={"width": 1280, "height": 800},
-                ignore_https_errors=True,
-            )
+            try:
+                ctx = new_authenticated_context(browser)
+            except LinkedInChallenge as ch:
+                browser.close()
+                return {
+                    "outcome": "failure",
+                    "data": {
+                        "error": "LinkedIn security challenge — provide a fresh li_at cookie or saved session",
+                        "challenge_url": ch.url,
+                        "screenshot": ch.screenshot_path,
+                    },
+                }
+
             page = ctx.new_page()
-            _login(page)
+
+            page.goto("https://www.linkedin.com/feed/", timeout=30000)
+            if is_challenge(page) or "/feed" not in (page.url or ""):
+                shot = save_challenge_screenshot(page)
+                challenge_url = page.url
+                browser.close()
+                return {
+                    "outcome": "failure",
+                    "data": {
+                        "error": "Not authenticated — session expired or cookie invalid",
+                        "challenge_url": challenge_url,
+                        "screenshot": shot,
+                    },
+                }
 
             for job in filtered_jobs:
                 result = _apply_to_job(page, job)
@@ -187,6 +199,12 @@ def apply_linkedin_jobs(context: dict) -> dict:
                     failed.append(entry)
 
                 time.sleep(random.uniform(3, 7))
+
+            # Refresh the persisted session so later runs keep skipping login.
+            try:
+                save_state(ctx)
+            except Exception:
+                pass
 
             browser.close()
 

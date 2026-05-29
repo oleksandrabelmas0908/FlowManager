@@ -4,3 +4,8 @@
 *.pyo
 flow.json
 .env
+
+# LinkedIn session secrets and runtime artifacts (never commit)
+app/data/linkedin_state.json
+app/data/*.png
+app/data/applications_log.json

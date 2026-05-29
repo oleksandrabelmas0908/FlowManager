@@ -1,10 +1,16 @@
-import os
 import random
 import time
 
 from playwright.sync_api import sync_playwright
 
 from utils.celery_app import celery_app
+from .session import (
+    LinkedInChallenge,
+    is_challenge,
+    new_authenticated_context,
+    save_challenge_screenshot,
+    save_state,
+)
 
 _SEARCH_QUERIES = [
     "Senior Backend Engineer Python",
@@ -26,20 +32,6 @@ def _build_search_url(keywords: str, location: str) -> str:
         "sortBy": "DD",  # Most recent
     }
     return "https://www.linkedin.com/jobs/search/?" + urllib.parse.urlencode(params)
-
-
-def _login(page) -> None:
-    email = os.environ["LINKEDIN_EMAIL"]
-    password = os.environ["LINKEDIN_PASSWORD"]
-
-    page.goto("https://www.linkedin.com/login", timeout=30000)
-    page.wait_for_selector("input[type='email'], #username", timeout=15000)
-    email_sel = "input[type='email']" if page.query_selector("input[type='email']") else "#username"
-    pwd_sel = "input[type='password']" if page.query_selector("input[type='password']") else "#password"
-    page.fill(email_sel, email)
-    page.fill(pwd_sel, password)
-    page.click('button[type="submit"]')
-    page.wait_for_url("**/feed/**", timeout=25000)
 
 
 def _scrape_job_cards(page, url: str) -> list[dict]:
@@ -88,7 +80,7 @@ def _scrape_job_cards(page, url: str) -> list[dict]:
 
 @celery_app.task(name="linkedin_search_jobs")
 def search_linkedin_jobs(context: dict) -> dict:
-    """Login to LinkedIn and search for Senior Backend Engineer jobs (Easy Apply)."""
+    """Authenticate to LinkedIn and search for Senior Backend Engineer jobs (Easy Apply)."""
     try:
         all_jobs: dict[str, dict] = {}
 
@@ -97,17 +89,35 @@ def search_linkedin_jobs(context: dict) -> dict:
                 headless=True,
                 args=["--no-sandbox", "--disable-dev-shm-usage"],
             )
-            ctx = browser.new_context(
-                user_agent=(
-                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-                ),
-                viewport={"width": 1280, "height": 800},
-                ignore_https_errors=True,
-            )
+            try:
+                ctx = new_authenticated_context(browser)
+            except LinkedInChallenge as ch:
+                browser.close()
+                return {
+                    "outcome": "failure",
+                    "data": {
+                        "error": "LinkedIn security challenge — provide a fresh li_at cookie or saved session",
+                        "challenge_url": ch.url,
+                        "screenshot": ch.screenshot_path,
+                    },
+                }
+
             page = ctx.new_page()
 
-            _login(page)
+            # Confirm the session is actually authenticated before scraping.
+            page.goto("https://www.linkedin.com/feed/", timeout=30000)
+            if is_challenge(page) or "/feed" not in (page.url or ""):
+                shot = save_challenge_screenshot(page)
+                challenge_url = page.url
+                browser.close()
+                return {
+                    "outcome": "failure",
+                    "data": {
+                        "error": "Not authenticated — session expired or cookie invalid",
+                        "challenge_url": challenge_url,
+                        "screenshot": shot,
+                    },
+                }
 
             for query in _SEARCH_QUERIES:
                 for location in _LOCATIONS:
@@ -117,8 +127,14 @@ def search_linkedin_jobs(context: dict) -> dict:
                         for job in jobs:
                             all_jobs.setdefault(job["job_id"], job)
                         time.sleep(random.uniform(1.5, 3.0))
-                    except Exception as e:
+                    except Exception:
                         continue
+
+            # Refresh the persisted session so later runs keep skipping login.
+            try:
+                save_state(ctx)
+            except Exception:
+                pass
 
             browser.close()
 
